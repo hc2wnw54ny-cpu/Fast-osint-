@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Windows Boot Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* Базовые настройки для предотвращения случайного горизонтального скролла и выделения текста */
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      font-family: 'JetBrains Mono', monospace;
+      background-color: #000000;
+      color: #ffffff;
+      user-select: none;
+    }
+
+    /* Анимация пульсации глаза и появления */
+    @keyframes eyePulse {
+      0%, 100% {
+        transform: scale(1);
+        filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.35));
+      }
+      50% {
+        transform: scale(1.06);
+        filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.7));
+      }
+    }
+
+    @keyframes fadeInQuick {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes blinkCursor {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+
+    .eye-anim {
+      animation: eyePulse 2s ease-in-out infinite;
+    }
+
+    .line-appear {
+      animation: fadeInQuick 0.16s ease-out forwards;
+    }
+
+    .cursor-blink {
+      animation: blinkCursor 0.9s infinite;
+    }
+
+    /* Кастомная полоса прокрутки для узких экранов в синем окне */
+    .locker-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+    .locker-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.45);
+      border-radius: 9999px;
+    }
+
+    /* ASCII блок с динамическим масштабированием под мобильный экран */
+    .ascii-art {
+      font-family: 'JetBrains Mono', monospace;
+      white-space: pre;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+  <!-- Главный контейнер во весь экран мобильного устройства -->
+  <div id="app" class="relative w-full h-[100dvh] overflow-hidden flex flex-col justify-between">
+
+    <!-- СЦЕНА 1: Загрузка, ошибки и глаз "ВАС ЗАМЕТИЛИ" -->
+    <section
+      id="scene-boot"
+      class="w-full h-full bg-black text-white flex flex-col justify-between p-3 sm:p-6 relative select-none"
+    >
+      <!-- Левый верхний блок с ошибками загрузки -->
+      <div id="boot-logs" class="text-xs sm:text-sm md:text-base leading-snug space-y-0.5 max-w-full z-10"></div>
+
+      <!-- Центральный глаз и надпись -->
+      <div
+        id="eye-container"
+        class="hidden flex-col items-center justify-center my-auto z-10 px-4 text-center line-appear"
+      >
+        <svg
+          class="w-28 h-16 sm:w-36 sm:h-20 eye-anim text-white mb-3"
+          viewBox="0 0 160 90"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-label="Глаз наблюдения"
+        >
+          <!-- Внешний контур глаза -->
+          <path
+            d="M8 45C24 18 50 8 80 8C110 8 136 18 152 45C136 72 110 82 80 82C50 82 24 72 8 45Z"
+            stroke="currentColor"
+            stroke-width="4.5"
+            stroke-linejoin="round"
+          />
+          <!-- Внутреннее веко -->
+          <path
+            d="M22 45C35 26 55 19 80 19C105 19 125 26 138 45C125 64 105 71 80 71C55 71 35 64 22 45Z"
+            stroke="currentColor"
+            stroke-width="2"
+            opacity="0.7"
+          />
+          <!-- Радужка -->
+          <circle cx="80" cy="45" r="18" stroke="currentColor" stroke-width="4" />
+          <!-- Зрачок -->
+          <circle cx="80" cy="45" r="8" fill="currentColor" />
+          <!-- Блик -->
+          <circle cx="73" cy="38" r="3" fill="#000000" />
+          <circle cx="73.5" cy="37.5" r="1.5" fill="#ffffff" />
+        </svg>
+        <div class="text-lg sm:text-2xl font-bold tracking-[0.22em] text-white uppercase">
+          ВАС ЗАМЕТИЛИ
+        </div>
+      </div>
+
+      <!-- Нижний отступ для баланса -->
+      <div class="h-4"></div>
+    </section>
+
+    <!-- СЦЕНА 2: Красный экран (#8f0c0c) с ASCII-анимацией -->
+    <section
+      id="scene-ascii"
+      class="hidden w-full h-full bg-[#8f0c0c] text-white flex items-center justify-center p-2 sm:p-6 overflow-hidden relative"
+    >
+      <div class="w-full max-w-4xl flex items-center justify-center overflow-hidden">
+        <pre
+          id="ascii-canvas"
+          class="ascii-art text-[7.5px] xs:text-[9px] sm:text-xs md:text-sm lg:text-base font-normal"
+        ></pre>
+      </div>
+    </section>
+
+    <!-- СЦЕНА 3: Синий экран блокировщика в стиле ретро-терминала -->
+    <section
+      id="scene-locker"
+      class="hidden w-full h-full bg-[#0000aa] text-white flex flex-col justify-between relative overflow-hidden"
+    >
+      <!-- Маленькие угловые бейджи с hex/ошибками -->
+      <div class="flex items-center justify-between px-2 pt-1.5 text-[10px] sm:text-xs text-white/80 font-mono shrink-0">
+        <span class="bg-[#000077] border border-white/40 px-1.5 py-0.5 rounded">
+          ID: 10 414 01000E3440
+        </span>
+        <span class="bg-[#000077] border border-white/40 px-1.5 py-0.5 rounded">
+          ERR_LOCK_0x0E
+        </span>
+      </div>
+
+      <!-- Основной контент синего экрана -->
+      <div class="flex-1 flex flex-col items-center justify-center px-3 sm:px-6 py-2 overflow-y-auto locker-scroll w-full">
+        <div class="w-full max-w-2xl flex flex-col items-center">
+          <!-- Заголовочный блок -->
+          <div class="bg-[#c0c0c0] text-[#0000aa] font-bold text-xs sm:text-base px-3 sm:px-5 py-1 sm:py-1.5 mb-2.5 sm:mb-4 shadow-md border border-white text-center rounded-sm">
+            Ваши файлы зашифрованы!
+          </div>
+
+          <!-- Рамка с текстом блокировщика -->
+          <div class="w-full border-2 border-white bg-[#0000cc] p-2.5 sm:p-4 shadow-[4px_4px_0px_rgba(0,0,0,0.45)] mb-3 sm:mb-4 rounded-sm">
+            <p class="text-[11px] sm:text-sm leading-relaxed text-white font-normal">
+              <span class="bg-white text-[#0000aa] font-bold px-1 mr-1">УПС!</span>
+              Вы подверглись масштабной хакерской атаке и теперь Ваш компьютер заблокирован,
+              а все имеющиеся диски и файлы на них зашифрованы хакерской группировкой.
+              Любые действия, связанные с попыткой обмануть систему, нанесут непоправимый
+              ущерб Вашему компьютеру и приведут к потере всех важных файлов без
+              возможности восстановления. При попытке снять блокировку главный загрузчик
+              натерпено будет снесен и будет подана рекурсивная нагрузка на ваш процессор,
+              что приведет к его неисправности. У вас есть
+              <span class="underline font-semibold">48 часов с момента запуска чтобы ввести код</span>,
+              чтобы получить код, напишите:
+              <span class="font-bold text-yellow-200 select-all">@skam01234</span>
+              (Telegram)
+            </p>
+          </div>
+
+          <!-- Поле ввода кода разблокировки -->
+          <form
+            id="unlock-form"
+            class="w-full flex flex-col items-center gap-2 sm:gap-2.5"
+            autocomplete="off"
+          >
+            <label
+              for="code-input"
+              class="text-xs sm:text-sm font-bold text-white text-center tracking-wide"
+            >
+              Введите код разблокировки:
+            </label>
+
+            <div
+              id="input-wrapper"
+              class="w-full max-w-md flex items-center bg-[#000077] border-2 border-white px-2.5 py-1.5 sm:py-2 rounded-sm focus-within:ring-2 focus-within:ring-yellow-300"
+            >
+              <span class="text-yellow-300 font-bold mr-2 select-none">&gt;</span>
+              <input
+                id="code-input"
+                type="text"
+                inputmode="text"
+                autocapitalize="none"
+                autocomplete="off"
+                autocorrect="off"
+                spellcheck="false"
+                placeholder="введите пароль..."
+                class="w-full bg-transparent text-white placeholder-white/40 font-mono text-xs sm:text-sm focus:outline-none"
+              />
+              <button
+                id="btn-submit-code"
+                type="submit"
+                class="ml-2 px-2.5 py-1 bg-white text-[#0000aa] font-bold text-[11px] sm:text-xs rounded-sm active:scale-95 transition shrink-0"
+              >
+                Ввод
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Нижняя строка состояния -->
+      <div class="w-full bg-[#c0c0c0] text-[#0000aa] font-bold text-[11px] sm:text-xs px-2.5 py-1 flex items-center justify-between border-t-2 border-white shrink-0">
+        <span class="truncate pr-2">Current PC: DESKTOP-USN7405</span>
+        <span class="shrink-0">Enter (Ввод)</span>
+      </div>
+
+      <!-- Нижний левый/правый технический бейдж -->
+      <div class="flex items-center justify-between px-2 pb-1 text-[10px] text-white/75 bg-[#0000aa] shrink-0">
+        <span>SYS_LOCK_ACTIVE</span>
+        <span>TG: @skam01234</span>
+      </div>
+
+      <!-- Модальное уведомление при неверном пароле -->
+      <div
+        id="error-modal"
+        class="hidden fixed inset-0 z-40 bg-black/65 backdrop-blur-[1px] flex items-center justify-center p-4"
+      >
+        <div class="w-full max-w-sm bg-[#0000aa] border-2 border-white shadow-[6px_6px_0px_#000000] p-4 rounded-sm text-center line-appear">
+          <div class="bg-red-600 text-white font-bold text-xs sm:text-sm py-1 px-2 mb-3 border border-white">
+            ОШИБКА БЕЗОПАСНОСТИ
+          </div>
+          <p class="text-xs sm:text-sm font-bold text-white leading-relaxed mb-4">
+            Замечена и остановлена попытка обмануть систему!
+          </p>
+          <button
+            id="btn-close-error"
+            type="button"
+            class="px-4 py-1.5 bg-white text-[#0000aa] font-bold text-xs sm:text-sm rounded-sm active:scale-95 transition"
+          >
+            ОК
+          </button>
+        </div>
+      </div>
+
+      <!-- Экран успешной разблокировки -->
+      <div
+        id="success-modal"
+        class="hidden fixed inset-0 z-40 bg-[#071324] flex items-center justify-center p-4"
+      >
+        <div class="w-full max-w-md bg-[#0d1f38] border border-emerald-400/50 rounded-xl p-5 sm:p-6 text-center shadow-2xl line-appear">
+          <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-300 text-2xl font-bold">
+            ✓
+          </div>
+          <h2 class="text-base sm:text-lg font-bold text-emerald-300 mb-1.5">
+            Доступ восстановлен
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-300 mb-5 leading-relaxed">
+            Код <span class="font-mono text-white bg-white/10 px-1.5 py-0.5 rounded">chitnenada_q</span> принят.
+            Блокировка системы снята.
+          </p>
+          <button
+            id="btn-restart-success"
+            type="button"
+            class="w-full py-2.5 px-4 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm active:scale-98 transition"
+          >
+            Перезагрузить
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    /**
+     * Конфигурация сценария и целевых значений
+     */
+    const CONFIG = {
+      correctPassword: "chitnenada_q",
+      telegramHandle: "@skam01234",
+      bootErrors: [
+        "Booting windows...",
+        "Boot error: 0x03527737",
+        "Boot error: 0x0266712",
+        "Boot error: 0x02897593",
+        "Boot error: 0x01447812",
+        "Boot error: 0x0150974",
+        "Boot error: 0x03871700",
+        "Boot error: 0x0700882",
+        "Boot error: 0x03803618"
+      ],
+      timings: {
+        errorIntervalMs: 190,
+        eyeDisplayMs: 1700,
+        asciiDisplayMs: 2400,
+        asciiFrameMs: 140
+      }
+    };
+
+    /**
+     * Генератор кадров ASCII-арта с капюшоном у терминала и дугой из символов 'O' и слэшей
+     */
+    function buildAsciiFrames() {
+      const baseHood = [
+        "                     ......",
+        "                 .::::::::::::.",
+        "               .::::::::::::::::.",
+        "              ::::::::::::::::::::",
+        "             ::::::..      ..::::::",
+        "            :::::.  .::::::.  .:::::",
+        "            :::::  .::::::::.  :::::",
+        "            :::::  .::::::::.  :::::",
+        "            ::::::  '::::::'  ::::::",
+        "            '::::::.        .::::::'",
+        "             '::::::::::::::::::::'",
+        "          .:::'  '::::::::::::'  ':::",
+        "        .:::::     '::::::::'     :::::.",
+        "       .::::::       '::::'       ::::::.",
+        "      .:::::::         ''         :::::::.",
+        "      ::::::::                    ::::::::",
+        "      ::::::::   .============.   ::::::::",
+        "      ':::::::   | [TERMINAL] |   :::::::'",
+        "       '::::::   '============'   ::::::'",
+        "        ':::::      //    \\\\      :::::'",
+        "          ':::     //      \\\\     :::'"
+      ];
+
+      const arcPositions = [
+        { r: 1, c: 32, ch: "OOO\\" },
+        { r: 2, c: 34, ch: "OOOOO\\" },
+        { r: 3, c: 36, ch: "OOOOOOOO" },
+        { r: 4, c: 38, ch: "OOOOOOO" },
+        { r: 5, c: 40, ch: "OOOOOO" },
+        { r: 6, c: 42, ch: "OOOOO" },
+        { r: 7, c: 44, ch: "OOOO" },
+        { r: 8, c: 45, ch: "OOO" },
+        { r: 9, c: 46, ch: "OOO" },
+        { r: 10, c: 47, ch: "OO" },
+        { r: 11, c: 48, ch: "OO" },
+        { r: 12, c: 49, ch: "00" },
+        { r: 13, c: 50, ch: "00" },
+        { r: 14, c: 51, ch: "0" }
+      ];
+
+      const frames = [];
+      for (let shift = 0; shift < 4; shift++) {
+        const grid = baseHood.map((line) => line.padEnd(56, " ").split(""));
+        arcPositions.forEach((item, idx) => {
+          const pulse = (idx + shift) % 3 === 0 ? "/" : (idx + shift) % 2 === 0 ? item.ch : item.ch.replace(/O/g, "0");
+          const textToDraw = idx % 2 === shift % 2 ? item.ch : pulse;
+          for (let i = 0; i < textToDraw.length; i++) {
+            const col = item.c + i;
+            if (item.r < grid.length && col < grid[item.r].length) {
+              grid[item.r][col] = textToDraw[i];
+            }
+          }
+        });
+        frames.push(grid.map((row) => row.join("").trimEnd()).join("\n"));
+      }
+      return frames;
+    }
+
+    const ASCII_FRAMES = buildAsciiFrames();
+
+    /**
+     * Управление состоянием и таймерами
+     */
+    const state = {
+      timers: [],
+      asciiInterval: null,
+      currentScene: "boot"
+    };
+
+    // Ссылки на DOM-элементы
+    const dom = {
+      sceneBoot: document.getElementById("scene-boot"),
+      bootLogs: document.getElementById("boot-logs"),
+      eyeContainer: document.getElementById("eye-container"),
+      sceneAscii: document.getElementById("scene-ascii"),
+      asciiCanvas: document.getElementById("ascii-canvas"),
+      sceneLocker: document.getElementById("scene-locker"),
+      unlockForm: document.getElementById("unlock-form"),
+      codeInput: document.getElementById("code-input"),
+      inputWrapper: document.getElementById("input-wrapper"),
+      errorModal: document.getElementById("error-modal"),
+      btnCloseError: document.getElementById("btn-close-error"),
+      successModal: document.getElementById("success-modal"),
+      btnRestartSuccess: document.getElementById("btn-restart-success")
+    };
+
+    /**
+     * Очищает все активные таймеры и интервалы анимации
+     */
+    function clearAllTimers() {
+      state.timers.forEach((id) => clearTimeout(id));
+      state.timers = [];
+      if (state.asciiInterval) {
+        clearInterval(state.asciiInterval);
+        state.asciiInterval = null;
+      }
+    }
+
+    function schedule(fn, delay) {
+      const id = setTimeout(fn, delay);
+      state.timers.push(id);
+      return id;
+    }
+
+    /**
+     * Переключает активную сцену
+     */
+    function showScene(sceneName) {
+      state.currentScene = sceneName;
+      dom.sceneBoot.classList.toggle("hidden", sceneName !== "boot");
+      dom.sceneAscii.classList.toggle("hidden", sceneName !== "ascii");
+      dom.sceneLocker.classList.toggle("hidden", sceneName !== "locker");
+
+      if (sceneName === "locker") {
+        dom.errorModal.classList.add("hidden");
+        dom.successModal.classList.add("hidden");
+        // Плавный фокус на поле ввода без резкого прыжка экрана
+        schedule(() => {
+          try {
+            dom.codeInput.focus({ preventScroll: true });
+          } catch (_) {
+            dom.codeInput.focus();
+          }
+        }, 120);
+      }
+    }
+
+    /**
+     * Запускает сцену 2: красный экран с ASCII-анимацией
+     */
+    function startAsciiScene() {
+      if (state.asciiInterval) {
+        clearInterval(state.asciiInterval);
+        state.asciiInterval = null;
+      }
+      showScene("ascii");
+
+      let frameIndex = 0;
+      dom.asciiCanvas.textContent = ASCII_FRAMES[0];
+
+      state.asciiInterval = setInterval(() => {
+        frameIndex = (frameIndex + 1) % ASCII_FRAMES.length;
+        dom.asciiCanvas.textContent = ASCII_FRAMES[frameIndex];
+      }, CONFIG.timings.asciiFrameMs);
+
+      schedule(() => {
+        if (state.asciiInterval) {
+          clearInterval(state.asciiInterval);
+          state.asciiInterval = null;
+        }
+        showScene("locker");
+      }, CONFIG.timings.asciiDisplayMs);
+    }
+
+    /**
+     * Запускает полную последовательность с самого начала
+     */
+    function startSequence() {
+      clearAllTimers();
+      dom.bootLogs.innerHTML = "";
+      dom.eyeContainer.classList.add("hidden");
+      dom.codeInput.value = "";
+      showScene("boot");
+
+      CONFIG.bootErrors.forEach((errText, index) => {
+        schedule(() => {
+          const line = document.createElement("div");
+          line.className = "line-appear font-mono";
+          line.textContent = errText;
+          dom.bootLogs.appendChild(line);
+        }, index * CONFIG.timings.errorIntervalMs);
+      });
+
+      const afterErrorsDelay = CONFIG.bootErrors.length * CONFIG.timings.errorIntervalMs + 220;
+
+      schedule(() => {
+        dom.eyeContainer.classList.remove("hidden");
+        dom.eyeContainer.classList.add("flex");
+      }, afterErrorsDelay);
+
+      schedule(() => {
+        startAsciiScene();
+      }, afterErrorsDelay + CONFIG.timings.eyeDisplayMs);
+    }
+
+    /**
+     * Обработка отправки пароля
+     */
+    function handleCodeSubmit(event) {
+      event.preventDefault();
+      const entered = dom.codeInput.value.trim();
+
+      if (entered === CONFIG.correctPassword) {
+        dom.errorModal.classList.add("hidden");
+        dom.successModal.classList.remove("hidden");
+      } else {
+        dom.errorModal.classList.remove("hidden");
+      }
+    }
+
+    // Привязка обработчиков событий
+    dom.unlockForm.addEventListener("submit", handleCodeSubmit);
+
+    dom.codeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleCodeSubmit(e);
+      }
+    });
+
+    dom.inputWrapper.addEventListener("click", () => {
+      dom.codeInput.focus();
+    });
+
+    dom.btnCloseError.addEventListener("click", () => {
+      dom.errorModal.classList.add("hidden");
+      dom.codeInput.value = "";
+      dom.codeInput.focus();
+    });
+
+    dom.errorModal.addEventListener("click", (e) => {
+      if (e.target === dom.errorModal) {
+        dom.errorModal.classList.add("hidden");
+        dom.codeInput.focus();
+      }
+    });
+
+    dom.btnRestartSuccess.addEventListener("click", () => {
+      startSequence();
+    });
+
+    // Запуск анимации при загрузке страницы
+    window.addEventListener("DOMContentLoaded", () => {
+      startSequence();
+    });
+  </script>
+</body>
+</html>
